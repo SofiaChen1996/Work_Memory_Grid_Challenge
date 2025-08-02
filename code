@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Memory Trainer App</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <style>
+    #gridCanvas {
+      border: 1px solid #ccc;
+      image-rendering: pixelated;
+      display: none;
+      margin: 1rem auto;
+      background: white;
+    }
+    .grid-container {
+      display: grid;
+      grid-template-columns: repeat(16, 40px);
+      grid-template-rows: repeat(9, 40px);
+      gap: 5px;
+      margin-top: 1rem;
+      justify-content: center;
+    }
+    .grid-cell {
+      width: 40px;
+      height: 40px;
+      background-color: #eee;
+      border: 1px solid #ccc;
+      text-align: center;
+      line-height: 40px;
+      cursor: pointer;
+    }
+    .dot {
+      background-color: gray;
+      border-radius: 50%;
+    }
+    .highlight {
+      background-color: orange !important;
+    }
+    .clicked {
+      background-color: lightgreen !important;
+    }
+    .wrong {
+      background-color: red !important;
+    }
+    .wrong-order {
+      background-color: skyblue !important;
+    }
+    #symmetryControls {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+  </style>
+</head>
+<body>
+<main class="container">
+  <h1>🧠 Memory Trainer App</h1>
+
+  <div id="viewStart">
+    <button id="startBtn">Start Game</button>
+  </div>
+
+  <div id="viewGame" style="display: none;">
+    <h3 id="phaseTitle">Memorize the Dot</h3>
+    <h4 id="levelInfo"></h4>
+    <div class="grid-container" id="gameGrid"></div>
+    <canvas id="gridCanvas" width="400" height="400"></canvas>
+    <div id="symmetryControls">
+      <button id="btnYes">Symmetric</button>
+      <button id="btnNo">Asymmetric</button>
+    </div>
+    <div id="recallInstructions" style="display: none;">
+      <p>Click the dots in the order you saw them.</p>
+    </div>
+  </div>
+
+  <div id="viewSummary" style="display: none;">
+    <h2>Summary</h2>
+    <div id="summaryDetails"></div>
+    <button onclick="location.reload()">Restart</button>
+  </div>
+</main>
+
+<script>
+const gridSize = { cols: 16, rows: 9 };
+const canvasGridSize = 20;
+const cellSize = 20;
+
+const levelConfigs = [
+  { dots: 30, steps: 3 },
+  { dots: 40, steps: 4 },
+  { dots: 50, steps: 5 },
+];
+
+let levelIndex = 0;
+let gridDots = [];
+let sequence = [];
+let userRecall = [];
+let symmetryAnswers = [];
+let stepIndex = 0;
+let correctSymmetry = false;
+let results = [];
+
+const gameGrid = document.getElementById("gameGrid");
+const viewStart = document.getElementById("viewStart");
+const viewGame = document.getElementById("viewGame");
+const viewSummary = document.getElementById("viewSummary");
+const canvas = document.getElementById("gridCanvas");
+const ctx = canvas.getContext("2d");
+
+function createRandomDots(n) {
+  const seen = new Set();
+  const dots = [];
+  while (dots.length < n) {
+    const x = Math.floor(Math.random() * gridSize.cols);
+    const y = Math.floor(Math.random() * gridSize.rows);
+    const key = `${x},${y}`;
+    if (!seen.has(key)) {
+      dots.push({ x, y });
+      seen.add(key);
+    }
+  }
+  return dots;
+}
+
+function renderGrid() {
+  gameGrid.innerHTML = "";
+  for (let y = 0; y < gridSize.rows; y++) {
+    for (let x = 0; x < gridSize.cols; x++) {
+      const cell = document.createElement("div");
+      cell.className = "grid-cell";
+      cell.dataset.x = x;
+      cell.dataset.y = y;
+      const isDot = gridDots.some(dot => dot.x === x && dot.y === y);
+      if (isDot) cell.classList.add("dot");
+      cell.addEventListener("click", () => handleRecallClick(x, y, cell));
+      gameGrid.appendChild(cell);
+    }
+  }
+}
+
+function generateSequence(fromDots, n) {
+  const shuffled = [...fromDots].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, n);
+}
+
+function startGame() {
+  viewStart.style.display = "none";
+  viewGame.style.display = "block";
+  startLevel(0);
+}
+
+function startLevel(idx) {
+  levelIndex = idx;
+  stepIndex = 0;
+  symmetryAnswers = [];
+  userRecall = [];
+  const config = levelConfigs[idx];
+  gridDots = createRandomDots(config.dots);
+  sequence = generateSequence(gridDots, config.steps);
+  document.getElementById("levelInfo").textContent = `Level ${idx + 1}`;
+  renderGrid();
+  runStep();
+}
+
+function runStep() {
+  if (stepIndex >= sequence.length) return beginRecall();
+  showDot(sequence[stepIndex]);
+}
+
+function showDot(dot) {
+  document.getElementById("phaseTitle").textContent = "Memorize the Dot";
+  gameGrid.style.display = "grid";
+  canvas.style.display = "none";
+  document.getElementById("symmetryControls").style.display = "none";
+
+  const selector = `.grid-cell[data-x='${dot.x}'][data-y='${dot.y}']`;
+  const cell = document.querySelector(selector);
+  cell.classList.add("highlight");
+  setTimeout(() => {
+    cell.classList.remove("highlight");
+    showCognitive();
+  }, 1000);
+}
+
+function showCognitive() {
+  document.getElementById("phaseTitle").textContent = "Is This Shape Symmetric?";
+  gameGrid.style.display = "none";
+  canvas.style.display = "block";
+  document.getElementById("symmetryControls").style.display = "flex";
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#ddd";
+  for (let i = 0; i <= canvasGridSize; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * cellSize, 0);
+    ctx.lineTo(i * cellSize, canvas.height);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * cellSize);
+    ctx.lineTo(canvas.width, i * cellSize);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "red";
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 0);
+  ctx.lineTo(canvas.width / 2, canvas.height);
+  ctx.stroke();
+
+  ctx.fillStyle = "blue";
+  const filled = new Set();
+  let fillCount = 0;
+  let asym = Math.random() < 0.5 ? 0 : Math.floor(Math.random() * 5 + 1);
+  correctSymmetry = asym === 0;
+  while (fillCount < 120) {
+    const x = Math.floor(Math.random() * 10);
+    const y = Math.floor(Math.random() * 20);
+    const key = `${x},${y}`;
+    if (!filled.has(key)) {
+      filled.add(key);
+      ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      if (asym > 0 && Math.random() < 0.3) {
+        asym--;
+      } else {
+        ctx.fillRect((19 - x) * cellSize, y * cellSize, cellSize, cellSize);
+      }
+      fillCount++;
+    }
+  }
+}
+
+function handleSymmetryAnswer(answer) {
+  symmetryAnswers.push(answer === correctSymmetry);
+  stepIndex++;
+  runStep();
+}
+document.getElementById("btnYes").onclick = () => handleSymmetryAnswer(true);
+document.getElementById("btnNo").onclick = () => handleSymmetryAnswer(false);
+
+function beginRecall() {
+  document.getElementById("phaseTitle").textContent = "Recall Phase";
+  gameGrid.style.display = "grid";
+  canvas.style.display = "none";
+  document.getElementById("symmetryControls").style.display = "none";
+  document.getElementById("recallInstructions").style.display = "block";
+  renderGrid();
+}
+
+function handleRecallClick(x, y, cell) {
+  if (userRecall.length >= sequence.length) return;
+  const expected = sequence[userRecall.length];
+  userRecall.push({ x, y });
+  if (x === expected.x && y === expected.y) {
+    cell.classList.add("clicked");
+  } else if (sequence.some(dot => dot.x === x && dot.y === y)) {
+    cell.classList.add("wrong-order");
+  } else {
+    cell.classList.add("wrong");
+  }
+  if (userRecall.length === sequence.length) endLevel();
+}
+
+function endLevel() {
+  const recallCorrect = userRecall.filter((dot, i) => dot.x === sequence[i].x && dot.y === sequence[i].y).length;
+  const cogCorrect = symmetryAnswers.filter(Boolean).length;
+  results.push({ level: levelIndex + 1, recall: recallCorrect, cog: cogCorrect, total: sequence.length });
+
+  if (levelIndex + 1 < levelConfigs.length) {
+    setTimeout(() => startLevel(levelIndex + 1), 1000);
+  } else {
+    showSummary();
+  }
+}
+
+function showSummary() {
+  viewGame.style.display = "none";
+  viewSummary.style.display = "block";
+  const container = document.getElementById("summaryDetails");
+  container.innerHTML = "";
+  results.forEach(res => {
+    const div = document.createElement("div");
+    div.innerText = `Level ${res.level} - Recall: ${res.recall}/${res.total}, Cognitive: ${res.cog}/${res.total}`;
+    container.appendChild(div);
+  });
+}
+
+document.getElementById("startBtn").onclick = startGame;
+</script>
+</body>
+</html>
